@@ -55,10 +55,9 @@ import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
-import com.approid.mycal.WeeklyScheduleView
+import com.approid.mycal.WeeklyScheduleScreen
 
 class MainActivity : ComponentActivity() {
-    @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -80,14 +79,14 @@ class MainActivity : ComponentActivity() {
                         name = "Android",
                         modifier = Modifier.padding(innerPadding)
                     )
-                    /*
+
                     val actualScheduleViewModel: ScheduleViewModel = viewModel()
-                    actualScheduleViewModel.populateSample()
-                    WeeklyScheduleView(
+
+                    WeeklyScheduleScreen(
                         scheduleViewModel = actualScheduleViewModel
                     )
 
-                     */
+
                 };
 
                 var imageUri by remember { mutableStateOf<Uri?>(null) }

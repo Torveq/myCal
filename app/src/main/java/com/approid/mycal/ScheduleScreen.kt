@@ -1,12 +1,24 @@
+@file:OptIn(ExperimentalFoundationApi::class)
+
 package com.approid.mycal
 
+import android.content.ClipData
+import android.content.ClipDescription
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.draganddrop.dragAndDropSource
+import androidx.compose.foundation.draganddrop.dragAndDropTarget
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -23,6 +35,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.draganddrop.DragAndDropTarget
+import androidx.compose.ui.draganddrop.DragAndDropTransferData
+import androidx.compose.ui.draganddrop.mimeTypes
+import androidx.compose.ui.draganddrop.toAndroidDragEvent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -31,11 +48,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.input.pointer.pointerInput
+import java.util.UUID
 
 
 // Data class to represent a single schedule event
 data class ScheduleEvent(
-    val id: String = java.util.UUID.randomUUID().toString(), // Unique ID for each event
+    val id: String = UUID.randomUUID().toString(), // Unique ID for each event
     var title: String,
     var startTime: String,
     var endTime: String,
@@ -80,8 +99,9 @@ class ScheduleViewModel : ViewModel() {
         }
     }
 
+    init {populateSampleData()}
     // Function to add some sample data for preview
-    fun populateSampleData() {
+    private fun populateSampleData() {
         if (events.isEmpty()) { // Only add if empty to avoid duplication on recomposition
             addEvent(ScheduleEvent(title = "Team Meeting", startTime = "10:00 AM", endTime = "11:00AM", location = "Room A", day = DayOfWeek.MONDAY))
             addEvent(ScheduleEvent(title = "Lunch with Client", startTime = "1:00 PM", endTime = "2:00PM", location = "Cafe Central", day = DayOfWeek.MONDAY))
@@ -93,27 +113,31 @@ class ScheduleViewModel : ViewModel() {
     }
 }
 
+// CHANGE: Create a parent composable to own and manage the drag-and-drop state.
+// This is crucial for coordinating the drag source and drop targets.
 @Composable
-fun WeeklyScheduleView(scheduleViewModel: ScheduleViewModel = viewModel()) {
-    val days = DayOfWeek.values() // TODO: adjust so that only days with events are in the lists
+fun WeeklyScheduleScreen(scheduleViewModel: ScheduleViewModel = viewModel()) {
+    // CHANGE: State to track the ID of the event currently being dragged.
+    // When an event is dragged, its ID is stored here. When the drag ends, it's set back to null.
+    // This state is what drives the AnimatedVisibility.
+    var draggedEventId by remember { mutableStateOf<String?>(null) }
+    val days = DayOfWeek.values()
 
     Column {
-        // Header Row for Days
         DayHeaderRow(days)
-
-        // Grid for Events
         LazyVerticalGrid(
-            columns = GridCells.Fixed(days.size), // One column for each day
-            // You can also use GridCells.Adaptive(minSize = /* some Dp value */)
-            // if you want the number of columns to change based on screen width
+            columns = GridCells.Fixed(days.size),
         ) {
-            // Iterate through each day to create columns
             days.forEach { day ->
-                item(span = { GridItemSpan(1) }) { // Each day's column
+                item(span = { GridItemSpan(1) }) {
                     DayColumn(
                         day = day,
                         events = scheduleViewModel.eventsByDay[day] ?: emptyList(),
-                        viewModel = scheduleViewModel
+                        viewModel = scheduleViewModel,
+                        // CHANGE: Pass the dragged item ID and the callbacks down to the children.
+                        draggedEventId = draggedEventId,
+                        onDragStart = { eventId -> draggedEventId = eventId },
+                        onDragEnd = { draggedEventId = null }
                     )
                 }
             }
@@ -142,19 +166,76 @@ fun DayHeaderRow(days: Array<DayOfWeek>) {
 fun DayColumn(
     day: DayOfWeek,
     events: List<ScheduleEvent>,
-    viewModel: ScheduleViewModel
-    /* Add drag and drop related parameters here */
+    viewModel: ScheduleViewModel,
+    // CHANGE: Accept the state and callbacks from the parent.
+    draggedEventId: String?,
+    onDragStart: (String) -> Unit,
+    onDragEnd: () -> Unit
 ) {
+    // CHANGE: State to provide visual feedback when an item is being dragged over this column.
+    var isDropTarget by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxHeight()
             .padding(4.dp)
-            .border(1.dp, Color.LightGray)
-        /* Add dragAndDropTarget modifier here for the column */
+            .border(2.dp, if (isDropTarget) MaterialTheme.colorScheme.primary else Color.LightGray)
+            .dragAndDropTarget(
+                shouldStartDragAndDrop = { event ->
+                    event.toAndroidDragEvent().clipDescription?.hasMimeType("application/vnd.mycal.event") == true
+                },
+                target = remember {
+                    object: DragAndDropTarget {
+                        // CHANGE: onEntered is called when the dragged item first enters the column's bounds.
+                        override fun onEntered(event: DragAndDropEvent) {
+                            super.onEntered(event)
+                            // We set the state to true to trigger the border color change.
+                            isDropTarget = true
+                        }
+
+                        // CHANGE: onExited is called when the dragged item leaves the column's bounds.
+                        override fun onExited(event: DragAndDropEvent) {
+                            super.onExited(event)
+                            // We reset the state to remove the highlight.
+                            isDropTarget = false
+                        }
+
+                        // CHANGE: onDrop is called when the user releases the item over this column.
+                        override fun onDrop(event: DragAndDropEvent): Boolean {
+                            // The data we sent is in the ClipData. We extract the item (the event ID).
+                            val draggedId = event.toAndroidDragEvent().clipData.getItemAt(0).text.toString()
+
+                            // If we successfully get the ID, we tell the ViewModel to move the event.
+                            if (draggedId.isNotEmpty()) {
+                                viewModel.moveEvent(draggedId, day)
+                            }
+                            // Reset the highlight, as the drop is complete.
+                            isDropTarget = false
+                            // Return true to indicate that the drop was successfully handled.
+                            return true
+                        }
+                    }
+                }
+            )
     ) {
         // Display events for this day
         events.forEach { event ->
-            EventItem(event = event, viewModel = viewModel /*, add dragAndDropSource modifier here */)
+            // CHANGE: The EventItem is wrapped in AnimatedVisibility.
+            // It is only 'visible' if its ID does not match the ID of the item currently being dragged.
+            // This makes the original item disappear while its "ghost" is being dragged.
+            AnimatedVisibility(
+                visible = draggedEventId != event.id,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                EventItem(
+                    event = event,
+                    viewModel = viewModel,
+                    // CHANGE: Pass the callbacks down to the EventItem.
+                    onDragStart = onDragStart,
+                    onDragEnd = onDragEnd
+                )
+            }
         }
         // You might want a minimum height for empty day columns or a placeholder
         if (events.isEmpty()) {
@@ -167,8 +248,10 @@ fun DayColumn(
 @Composable
 fun EventItem(
     event: ScheduleEvent,
-    viewModel: ScheduleViewModel
-    /* Add dragAndDropSource modifier here */
+    viewModel: ScheduleViewModel,
+    // CHANGE: Accept callbacks to notify the parent about drag state changes.
+    onDragStart: (String) -> Unit,
+    onDragEnd: () -> Unit
 ) {
     var showOptionsMenu by remember { mutableStateOf(false) }
 
@@ -176,7 +259,40 @@ fun EventItem(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            /* Add .dragAndDropSource modifier here for the event item */
+            .dragAndDropSource {
+                // We use a pointerInput scope implicitly(we are in dndsource scope which is in pointerInput scope) to detect the long press gesture that will start the drag.
+                detectTapGestures(
+                    onLongPress = {
+                        // CHANGE: When a long press is detected, we build and start the data transfer.
+                        // The try/finally block is crucial. The 'finally' block ensures that
+                        // onDragEnd() is always called, even if the drag is cancelled,
+                        // making sure the original item reappears correctly.
+                        try {
+                            // First, we notify the parent that a drag has started.
+                            // This sets the 'draggedEventId' and hides this original item via AnimatedVisibility.
+                            onDragStart(event.id)
+
+                            // Then, we start the actual system-level drag operation.
+                            startTransfer(
+                                DragAndDropTransferData(
+                                    // We send the event's ID as plain text.
+                                    // We also give it a custom MIME type so our drop target can identify it.
+                                    clipData = ClipData(
+                                        ClipDescription("Schedule Event", arrayOf("application/vnd.mycal.event")),
+                                        ClipData.Item(event.id)
+                                    ),
+                                    // The system automatically creates a "drag shadow" (a semi-transparent
+                                    // image of the composable being dragged), so we don't need to draw it manually.
+                                )
+                            )
+                        } finally {
+                            // This block executes when the drag is over (dropped or cancelled).
+                            // We notify the parent to reset the state, making the original item visible again.
+                            onDragEnd()
+                        }
+                    }
+                )
+            }
             .combinedClickable(
                 onClick = { /* Maybe open event details */ },
                 onLongClick = { showOptionsMenu = true } // Show options on long press
@@ -211,9 +327,6 @@ fun EventItem(
         }
     }
 }
-
-
-
 
 
 
