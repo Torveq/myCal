@@ -76,6 +76,7 @@ import java.util.Locale
 import java.util.UUID
 import kotlin.math.abs
 
+// wanted to add a drag and drop kanban style schedule with intra column drag and drop but some logistic issues and cba to reinvent the wheel(how to adjust time
 
 // Data class to represent a single schedule event
 data class ScheduleEvent(
