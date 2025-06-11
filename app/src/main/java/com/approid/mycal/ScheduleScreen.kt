@@ -8,6 +8,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -15,23 +16,36 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.draganddrop.dragAndDropSource
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.ripple.rememberRipple
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,7 +54,10 @@ import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.draganddrop.DragAndDropTransferData
 import androidx.compose.ui.draganddrop.mimeTypes
 import androidx.compose.ui.draganddrop.toAndroidDragEvent
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -49,7 +66,15 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.window.Dialog
+import kotlinx.coroutines.launch
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.UUID
+import kotlin.math.abs
 
 
 // Data class to represent a single schedule event
@@ -69,35 +94,54 @@ enum class DayOfWeek {
 
 // ViewModel to hold and manage the schedule state
 class ScheduleViewModel : ViewModel() {
-    // A list of events, wrapped in mutableStateListOf to trigger recomposition on changes
-    val events = mutableStateListOf<ScheduleEvent>()
+    // A list of events, wrapped in mutableStateOf to trigger recomposition on changes
+    var events by mutableStateOf<List<ScheduleEvent>>(emptyList())
+        private set  //makes the setter of this private
 
     // Map to group events by day for easier display
     val eventsByDay: Map<DayOfWeek, List<ScheduleEvent>>
-        get() = events.groupBy { it.day }
+        get() = events.groupBy { it.day }.mapValues { entry ->
+            // Ensure events within a day are sorted, assuming they have some order property
+            // For now, we'll just use the order they are in the list.
+            entry.value
+        }
 
     fun addEvent(event: ScheduleEvent) {
-        events.add(event)
+        events = events + event
     }
 
     fun deleteEvent(eventId: String) {
-        events.removeAll { it.id == eventId }
+        events = events.filterNot { it.id == eventId }
     }
 
     fun updateEvent(updatedEvent: ScheduleEvent) {
-        val index = events.indexOfFirst { it.id == updatedEvent.id }
-        if (index != -1) {
-            events[index] = updatedEvent
-        }
+        events = events.map { if (it.id == updatedEvent.id) updatedEvent else it }
     }
 
-    fun moveEvent(eventId: String, newDay: DayOfWeek) {
-        val eventIndex = events.indexOfFirst { it.id == eventId }
-        if (eventIndex != -1) {
-            val event = events[eventIndex]
-            events[eventIndex] = event.copy(day = newDay)
-        }
+    // REORDERING CHANGE: This function now handles moving an event to a specific day
+    // AND a specific index within that day's list, enabling reordering.
+    fun moveEvent(draggedId: String, targetDay: DayOfWeek, targetIndex: Int) {
+        val currentList = events.toMutableList()
+
+        // Find the event being dragged and remove it from its original position.
+        val draggedEvent = currentList.find { it.id == draggedId } ?: return
+        currentList.remove(draggedEvent)
+
+        // All events for the target day, in their current order.
+        val targetDayEvents = currentList.filter { it.day == targetDay }.toMutableList()
+        // Ensure the target index is within the valid bounds.
+        val insertionIndex = targetIndex.coerceIn(0, targetDayEvents.size)
+        // Add the dragged event to its new position in the target day's list.
+        targetDayEvents.add(insertionIndex, draggedEvent.copy(day = targetDay))
+
+        // Get all events from other days.
+        val otherEvents = currentList.filter { it.day != targetDay }
+
+        // Reconstruct the master list and update the state.
+        // We sort by day enum order to maintain the column structure.
+        events = (otherEvents + targetDayEvents).sortedBy { it.day.ordinal }
     }
+
 
     init {populateSampleData()}
     // Function to add some sample data for preview
@@ -121,26 +165,39 @@ fun WeeklyScheduleScreen(scheduleViewModel: ScheduleViewModel = viewModel()) {
     // When an event is dragged, its ID is stored here. When the drag ends, it's set back to null.
     // This state is what drives the AnimatedVisibility.
     var draggedEventId by remember { mutableStateOf<String?>(null) }
+    // When this is not null, the Edit Dialog will be shown.
+    var eventToEdit by remember { mutableStateOf<ScheduleEvent?>(null) }
     val days = DayOfWeek.values()
 
-    Column {
-        DayHeaderRow(days)
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(days.size),
-        ) {
-            days.forEach { day ->
-                item(span = { GridItemSpan(1) }) {
-                    DayColumn(
-                        day = day,
-                        events = scheduleViewModel.eventsByDay[day] ?: emptyList(),
-                        viewModel = scheduleViewModel,
-                        // CHANGE: Pass the dragged item ID and the callbacks down to the children.
-                        draggedEventId = draggedEventId,
-                        onDragStart = { eventId -> draggedEventId = eventId },
-                        onDragEnd = { draggedEventId = null }
-                    )
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column {
+            DayHeaderRow(days)
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(days.size),
+            ) {
+                days.forEach { day ->
+                    item(span = { GridItemSpan(1) }) {
+                        DayColumn(
+                            day = day,
+                            events = scheduleViewModel.eventsByDay[day] ?: emptyList(),
+                            viewModel = scheduleViewModel,
+                            // CHANGE: Pass the dragged item ID and the callbacks down to the children.
+                            draggedEventId = draggedEventId,
+                            onDragStart = { eventId -> draggedEventId = eventId },
+                            onDragEnd = { draggedEventId = null },
+                            onEventEdit = { event -> eventToEdit = event }
+                        )
+                    }
                 }
             }
+        }
+        // The `let` scope ensures the dialog is only composed when there's an event to edit.
+        eventToEdit?.let { event ->
+            EditEventDialog(
+                eventToEdit = event,
+                viewModel = scheduleViewModel,
+                onDismiss = { eventToEdit = null } // Set back to null to hide the dialog
+            )
         }
     }
 }
@@ -170,7 +227,8 @@ fun DayColumn(
     // CHANGE: Accept the state and callbacks from the parent.
     draggedEventId: String?,
     onDragStart: (String) -> Unit,
-    onDragEnd: () -> Unit
+    onDragEnd: () -> Unit,
+    onEventEdit: (ScheduleEvent) -> Unit
 ) {
     // CHANGE: State to provide visual feedback when an item is being dragged over this column.
     var isDropTarget by remember { mutableStateOf(false) }
@@ -178,6 +236,11 @@ fun DayColumn(
     Column(
         modifier = Modifier
             .fillMaxHeight()
+            // EMPTY COLUMN FIX: The .defaultMinSize modifier ensures that the Column has a
+            // minimum height even when it contains no events. This guarantees that there is
+            // always a physical area on the screen to act as a drop target, fixing the bug
+            // where items could not be dropped into empty columns.
+            .defaultMinSize(minHeight = 150.dp)
             .padding(4.dp)
             .border(2.dp, if (isDropTarget) MaterialTheme.colorScheme.primary else Color.LightGray)
             .dragAndDropTarget(
@@ -207,7 +270,13 @@ fun DayColumn(
 
                             // If we successfully get the ID, we tell the ViewModel to move the event.
                             if (draggedId.isNotEmpty()) {
-                                viewModel.moveEvent(draggedId, day)
+                                // REORDERING CHANGE: When dropping on the column (not an item),
+                                // move the event to the end of this day's list.
+                                viewModel.moveEvent(
+                                    draggedId = draggedId,
+                                    targetDay = day,
+                                    targetIndex = events.size
+                                )
                             }
                             // Reset the highlight, as the drop is complete.
                             isDropTarget = false
@@ -219,22 +288,30 @@ fun DayColumn(
             )
     ) {
         // Display events for this day
-        events.forEach { event ->
-            // CHANGE: The EventItem is wrapped in AnimatedVisibility.
-            // It is only 'visible' if its ID does not match the ID of the item currently being dragged.
-            // This makes the original item disappear while its "ghost" is being dragged.
-            AnimatedVisibility(
-                visible = draggedEventId != event.id,
-                enter = fadeIn(),
-                exit = fadeOut()
-            ) {
-                EventItem(
-                    event = event,
-                    viewModel = viewModel,
-                    // CHANGE: Pass the callbacks down to the EventItem.
-                    onDragStart = onDragStart,
-                    onDragEnd = onDragEnd
-                )
+        events.forEachIndexed { index, event ->
+            // STALE STATE FIX: We wrap the item in a `key` composable.
+            // This explicitly tells Compose that the content inside is tied to the unique
+            // `event.id`. This prevents the "stale lambda" bug where a reused composable
+            // might reference old data in its gesture listeners.
+            key(event.id) {
+                // CHANGE: The EventItem is wrapped in AnimatedVisibility.
+                // It is only 'visible' if its ID does not match the ID of the item currently being dragged.
+                // This makes the original item disappear while its "ghost" is being dragged.
+                AnimatedVisibility(
+                    visible = draggedEventId != event.id,
+                    enter = fadeIn(),
+                    exit = fadeOut()
+                ) {
+                    EventItem(
+                        event = event,
+                        viewModel = viewModel,
+                        index = index,
+                        // CHANGE: Pass the callbacks down to the EventItem.
+                        onDragStart = onDragStart,
+                        onDragEnd = onDragEnd,
+                        onEdit = onEventEdit
+                    )
+                }
             }
         }
         // You might want a minimum height for empty day columns or a placeholder
@@ -244,25 +321,66 @@ fun DayColumn(
     }
 }
 
+
+
+
+
+
+
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun EventItem(
     event: ScheduleEvent,
     viewModel: ScheduleViewModel,
+    index: Int, // REORDERING CHANGE: Accept the item's index in the list.
     // CHANGE: Accept callbacks to notify the parent about drag state changes.
     onDragStart: (String) -> Unit,
-    onDragEnd: () -> Unit
+    onDragEnd: () -> Unit,
+    onEdit: (ScheduleEvent) -> Unit
 ) {
     var showOptionsMenu by remember { mutableStateOf(false) }
+    // RIPPLE EFFECT: 1. Create a MutableInteractionSource.
+    // This object will allow us to programmatically control the visual state (like pressed) of the Card.
+    val interactionSource = remember { MutableInteractionSource() }
+    // REORDERING CHANGE: State to show visual feedback when another item is dragged over this one.
+    var isBeingDraggedOver by remember { mutableStateOf(false) }
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
+            .combinedClickable(
+                onClick = { showOptionsMenu = true }
+            )
+            // RIPPLE EFFECT: 2. Apply the .indication modifier.
+            // This modifier doesn't detect gestures itself; it just *draws* the ripple
+            // whenever the `interactionSource` receives a press event.
+            .indication(interactionSource = interactionSource, indication = rememberRipple())
             .dragAndDropSource {
                 // We use a pointerInput scope implicitly(we are in dndsource scope which is in pointerInput scope) to detect the long press gesture that will start the drag.
                 detectTapGestures(
+                    // RIPPLE EFFECT: 3. Implement the onPress block.
+                    onPress = { offset ->
+                        // As soon as a finger touches down, create a 'Press' interaction.
+                        val press = PressInteraction.Press(offset)
+                        // Emit the press to our interactionSource, which tells the .indication modifier to draw the ripple.
+                        interactionSource.emit(press)
+
+                        try {
+                            // This waits for the user to lift their finger or for the gesture to be cancelled.
+                            awaitRelease()
+                        } finally {
+                            // Once the press is over, emit a 'Release' event to remove the ripple.
+                            interactionSource.emit(PressInteraction.Release(press))
+                        }
+                    },
+                    // A simple, single tap will now trigger the options menu.
+                    onTap = {
+                        showOptionsMenu = true
+                    },
                     onLongPress = {
+                        android.util.Log.d("DragDropDebug", "Long Press DETECTED on item: ${event.title}")
                         // CHANGE: When a long press is detected, we build and start the data transfer.
                         // The try/finally block is crucial. The 'finally' block ensures that
                         // onDragEnd() is always called, even if the drag is cancelled,
@@ -271,6 +389,8 @@ fun EventItem(
                             // First, we notify the parent that a drag has started.
                             // This sets the 'draggedEventId' and hides this original item via AnimatedVisibility.
                             onDragStart(event.id)
+
+                            android.util.Log.d("DragDropDebug", "onDragStart CALLED for item: ${event.title}")
 
                             // Then, we start the actual system-level drag operation.
                             startTransfer(
@@ -292,17 +412,20 @@ fun EventItem(
                         }
                     }
                 )
-            }
-            .combinedClickable(
-                onClick = { /* Maybe open event details */ },
-                onLongClick = { showOptionsMenu = true } // Show options on long press
-            ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            },
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        shape = RoundedCornerShape(12.dp) // Modern, roundy corners for the event item.
     ) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            Text(text = event.title, fontWeight = FontWeight.Bold)
-            Text(text = "${event.startTime} - ${event.endTime}")
-            event.location?.let { Text(text = "Location: $it") }
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(text = event.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(text = "${event.startTime} - ${event.endTime}", style = MaterialTheme.typography.bodyLarge)
+            event.location?.let {
+                if (it.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(text = "At: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
 
             // Options Menu (DropdownMenu)
             DropdownMenu(
@@ -312,8 +435,8 @@ fun EventItem(
                 DropdownMenuItem(
                     text = { Text("Edit") },
                     onClick = {
+                        onEdit(event)
                         showOptionsMenu = false
-                        // TODO: Navigate to an edit screen or show an edit dialog
                     }
                 )
                 DropdownMenuItem(
@@ -332,196 +455,330 @@ fun EventItem(
 
 
 
+// Helper to format LocalTime into a string like "1:30 PM"
+private val timeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
+
+// Helper to parse a time string like "1:30 PM" into LocalTime
+private fun parseTime(timeString: String): LocalTime {
+    return try {
+        LocalTime.parse(timeString, timeFormatter)
+    } catch (e: Exception) {
+        LocalTime.now() // Fallback
+    }
+}
+
+/**
+ * Main dialog for editing an event.
+ */
+@Composable
+fun EditEventDialog(
+    eventToEdit: ScheduleEvent,
+    viewModel: ScheduleViewModel,
+    onDismiss: () -> Unit
+) {
+    var title by remember { mutableStateOf(eventToEdit.title) }
+    var location by remember { mutableStateOf(eventToEdit.location ?: "") }
+    var startTime by remember { mutableStateOf(eventToEdit.startTime) }
+    var endTime by remember { mutableStateOf(eventToEdit.endTime) }
+
+    var showTimePickerFor by remember { mutableStateOf<String?>(null) }
 
 
+    fun adjustTime(timeString: String, amount: Long): String {
+        val time = parseTime(timeString)
+        return time.plusMinutes(amount).format(timeFormatter)
+    }
 
 
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 8.dp
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Edit Event",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(20.dp))
 
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Event Title") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
 
+                OutlinedTextField(
+                    value = location,
+                    onValueChange = { location = it },
+                    label = { Text("Location (Optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TimeSelector(
+                        label = "Start Time",
+                        time = startTime,
+                        onIncrement = { startTime = adjustTime(startTime, 30) },
+                        onDecrement = { startTime = adjustTime(startTime, -30) },
+                        onTimeClick = { showTimePickerFor = "Start" },
+                        modifier = Modifier.weight(1f)
+                    )
+                    TimeSelector(
+                        label = "End Time",
+                        time = endTime,
+                        onIncrement = { endTime = adjustTime(endTime, 30) },
+                        onDecrement = { endTime = adjustTime(endTime, -30) },
+                        onTimeClick = { showTimePickerFor = "End" },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
 
+                Spacer(modifier = Modifier.height(24.dp))
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancel")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            val updatedEvent = eventToEdit.copy(
+                                title = title,
+                                location = location,
+                                startTime = startTime,
+                                endTime = endTime
+                            )
+                            viewModel.updateEvent(updatedEvent)
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Save")
+                    }
+                }
+            }
+        }
+    }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/* Sample schedule data (same as your JSON)
-val sampleScheduleData = listOf(
-    ScheduleEvent(title="Mathematics", "09:00", "10:00", "Monday"),
-    ScheduleEvent("English", "10:00", "11:00", "Monday"),
-    ScheduleEvent("Break", "11:00", "11:30", "Monday"),
-    ScheduleEvent("Science", "11:30", "12:30", "Monday"),
-    ScheduleEvent("Lunch", "12:30", "13:30", "Monday"),
-    ScheduleEvent("History", "13:30", "14:30", "Monday"),
-    ScheduleEvent("Geography", "14:30", "15:30", "Monday"),
-    ScheduleEvent("English", "09:00", "10:00", "Tuesday"),
-    ScheduleEvent("Science", "10:00", "11:00", "Tuesday"),
-    ScheduleEvent("Break", "11:00", "11:30", "Tuesday"),
-    ScheduleEvent("Mathematics", "11:30", "12:30", "Tuesday"),
-    ScheduleEvent("Lunch", "12:30", "13:30", "Tuesday"),
-    ScheduleEvent("Art", "13:30", "14:30", "Tuesday"),
-    ScheduleEvent("Music", "14:30", "15:30", "Tuesday"),
-    ScheduleEvent("Science", "09:00", "10:00", "Wednesday"),
-    ScheduleEvent("Mathematics", "10:00", "11:00", "Wednesday"),
-    ScheduleEvent("Break", "11:00", "11:30", "Wednesday"),
-    ScheduleEvent("English", "11:30", "12:30", "Wednesday"),
-    ScheduleEvent("Lunch", "12:30", "13:30", "Wednesday"),
-    ScheduleEvent("P.E.", "13:30", "14:30", "Wednesday"),
-    ScheduleEvent("I.T.", "14:30", "15:30", "Wednesday"),
-    ScheduleEvent("History", "09:00", "10:00", "Thursday"),
-    ScheduleEvent("Geography", "10:00", "11:00", "Thursday"),
-    ScheduleEvent("Break", "11:00", "11:30", "Thursday"),
-    ScheduleEvent("Mathematics", "11:30", "12:30", "Thursday"),
-    ScheduleEvent("Lunch", "12:30", "13:30", "Thursday"),
-    ScheduleEvent("Science", "13:30", "14:30", "Thursday"),
-    ScheduleEvent("English", "14:30", "15:30", "Thursday"),
-    ScheduleEvent("P.E.", "09:00", "10:00", "Friday"),
-    ScheduleEvent("English", "10:00", "11:00", "Friday"),
-    ScheduleEvent("Break", "11:00", "11:30", "Friday"),
-    ScheduleEvent("Science", "11:30", "12:30", "Friday"),
-    ScheduleEvent("Lunch", "12:30", "13:30", "Friday"),
-    ScheduleEvent("Mathematics", "13:30", "14:30", "Friday"),
-    ScheduleEvent("French", "14:30", "15:30", "Friday")
-)
-
-
-
+    showTimePickerFor?.let { pickerType ->
+        val initialTime = if (pickerType == "Start") startTime else endTime
+        TimePickerDialog(
+            initialTime = parseTime(initialTime),
+            onDismiss = { showTimePickerFor = null },
+            onTimeSelected = { newTime ->
+                if (pickerType == "Start") {
+                    startTime = newTime.format(timeFormatter)
+                } else {
+                    endTime = newTime.format(timeFormatter)
+                }
+                showTimePickerFor = null
+            }
+        )
+    }
+}
 
 @Composable
-fun ScheduleScreen(scheduleData: List<ScheduleEvent>) {
-    // Define the days of the week in order
-    val daysOfWeek = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday")
-    // Get unique time slots and sort them
-    val timeSlots = scheduleData
-        .map { "${it.startTime} - ${it.endTime}" }
-        .distinct()
-        .sortedWith(compareBy { it.split(" - ")[0] }) // Sort by start time
-
-    Column(modifier = Modifier.padding(8.dp)) {
-        Text(
-            text = "School Timetable",
-            style = MaterialTheme.typography.headlineSmall,
+fun TimeSelector(
+    label: String,
+    time: String,
+    onIncrement: () -> Unit,
+    onDecrement: () -> Unit,
+    onTimeClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(label, style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.height(4.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
             modifier = Modifier
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                .padding(horizontal = 8.dp)
+        ) {
+            Text(
+                text = time,
+                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable(onClick = onTimeClick)
+                    .padding(vertical = 12.dp, horizontal = 8.dp)
+            )
+            Column {
+                IconButton(onClick = onIncrement, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Increase time")
+                }
+                IconButton(onClick = onDecrement, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Decrease time")
+                }
+            }
+        }
+    }
+}
+
+
+/**
+ * A dialog for picking a specific time with an Apple-style scrolling wheel.
+ */
+@Composable
+fun TimePickerDialog(
+    initialTime: LocalTime,
+    onDismiss: () -> Unit,
+    onTimeSelected: (LocalTime) -> Unit
+) {
+    val hours = (1..12).toList()
+    val minutes = (0..59).toList()
+    val amPm = listOf("AM", "PM")
+
+    var selectedHour by remember { mutableStateOf(if (initialTime.hour == 0 || initialTime.hour == 12) 12 else initialTime.hour % 12) }
+    var selectedMinute by remember { mutableStateOf(initialTime.minute) }
+    var selectedAmPm by remember { mutableStateOf(if (initialTime.hour < 12) "AM" else "PM") }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(16.dp)) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Text("Select Time", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.align(Alignment.CenterHorizontally))
+                Spacer(Modifier.height(20.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Hour Picker
+                    ScrollablePicker(items = hours, initialItem = selectedHour, onValueChange = { selectedHour = it })
+                    Text(":", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(horizontal = 8.dp))
+                    // Minute Picker
+                    ScrollablePicker(items = minutes, initialItem = selectedMinute, onValueChange = { selectedMinute = it }, format = { "%02d".format(it) })
+                    // AM/PM Picker
+                    ScrollablePicker(items = amPm, initialItem = selectedAmPm, onValueChange = { selectedAmPm = it }, modifier = Modifier.padding(start = 8.dp))
+                }
+
+                Spacer(Modifier.height(24.dp))
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = {
+                        val hour24 = when (selectedAmPm) {
+                            "PM" -> if (selectedHour == 12) 12 else selectedHour + 12
+                            "AM" -> if (selectedHour == 12) 0 else selectedHour
+                            else -> 0
+                        }
+                        onTimeSelected(LocalTime.of(hour24, selectedMinute))
+                    }) {
+                        Text("OK")
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * An iOS-style scrolling picker that highlights and snaps to the central item.
+ */
+@Composable
+fun <T> ScrollablePicker(
+    items: List<T>,
+    initialItem: T,
+    onValueChange: (T) -> Unit,
+    modifier: Modifier = Modifier,
+    itemHeight: Dp = 40.dp,
+    visibleItemsCount: Int = 3,
+    format: (T) -> String = { it.toString() }
+) {
+    val listState = rememberLazyListState(items.indexOf(initialItem))
+    val coroutineScope = rememberCoroutineScope()
+    val itemHeightPx = with(LocalDensity.current) { itemHeight.toPx() }
+
+    // This derived state calculates the index of the item that is currently in the center.
+    val centralItemIndex by remember {
+        derivedStateOf {
+            val firstVisibleIndex = listState.firstVisibleItemIndex
+            val firstVisibleOffset = listState.firstVisibleItemScrollOffset
+            (firstVisibleIndex + (firstVisibleOffset / itemHeightPx).toInt()).coerceIn(items.indices)
+        }
+    }
+
+    // Effect to snap to the nearest item when scrolling stops.
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (!listState.isScrollInProgress) {
+            val targetIndex = centralItemIndex
+            // Animate the scroll to the calculated central item.
+            listState.animateScrollToItem(targetIndex)
+            // Report the new value.
+            onValueChange(items[targetIndex])
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .height(itemHeight * visibleItemsCount)
+            .width(80.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        // The highlight box that frames the selected item.
+        Box(
+            modifier = Modifier
+                .height(itemHeight)
                 .fillMaxWidth()
-                .padding(vertical = 16.dp),
-            textAlign = TextAlign.Center,
-            fontWeight = FontWeight.Bold
+                .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
         )
 
-        // Header Row for Days
-        Row(Modifier.fillMaxWidth()) {
-            // Empty cell for time column alignment
-            Box(modifier = Modifier.weight(0.2f).border(1.dp, Color.LightGray).padding(4.dp)) {
-                Text(text = "Time", fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.align(Alignment.Center))
-            }
-            // Day headers
-            daysOfWeek.forEach { day ->
-                Box(
-                    modifier = Modifier
-                        .weight(1f) // Each day column takes equal space
-                        .border(1.dp, Color.LightGray)
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                        .padding(vertical = 8.dp, horizontal = 4.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(text = day, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, textAlign = TextAlign.Center, fontSize = 11.sp)
-                }
-            }
-        }
+        LazyColumn(
+            state = listState,
+            contentPadding = PaddingValues(vertical = itemHeight * (visibleItemsCount / 2)),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            items(items.size) { index ->
+                val item = items[index]
 
-        // Schedule Rows (Time slots and events)
-        LazyColumn {
-            items(timeSlots) { timeSlot ->
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    // Time Slot Cell
-                    Box(
+                // Calculate the distance from the center to apply transformations.
+                val distanceFromCenter = abs(index - centralItemIndex)
+                val scrollOffsetRatio = (listState.firstVisibleItemScrollOffset / itemHeightPx).let { it - it.toInt() }
+                val currentItemOffset = abs(index - listState.firstVisibleItemIndex - scrollOffsetRatio)
+
+                // The scale and alpha are interpolated to create a smooth transition.
+                val scale by animateFloatAsState(targetValue = if (distanceFromCenter == 0) 1f else 1f - (currentItemOffset * 0.25f).coerceAtMost(0.25f))
+                val alpha by animateFloatAsState(targetValue = if (distanceFromCenter == 0) 1f else 1f - (currentItemOffset * 0.5f).coerceAtMost(0.75f))
+
+                Box(modifier = Modifier.height(itemHeight), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = format(item),
+                        style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier
-                            .weight(0.2f) // Corresponds to the "Time" header's weight
-                            .height(IntrinsicSize.Min) // Ensure height matches content or other cells
-                            .border(1.dp, Color.LightGray)
-                            .background(MaterialTheme.colorScheme.secondaryContainer)
-                            .padding(4.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = timeSlot,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 10.sp,
-                            textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                    }
-
-                    // Event Cells for each day in this time slot
-                    daysOfWeek.forEach { day ->
-                        val event = scheduleData.find { it.day == day && "${it.startTime} - ${it.endTime}" == timeSlot }
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(60.dp) // Fixed height for event cells
-                                .border(1.dp, Color.LightGray)
-                                .padding(4.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = event?.title ?: "", // Display event title or empty string
-                                textAlign = TextAlign.Center,
-                                fontSize = 10.sp,
-                                lineHeight = 12.sp // Helps with multi-line text in small boxes
-                            )
-                        }
-                    }
+                            .graphicsLayer {
+                                scaleX = scale
+                                scaleY = scale
+                                this.alpha = alpha
+                            }
+                            .clickable {
+                                coroutineScope.launch {
+                                    listState.animateScrollToItem(index)
+                                }
+                            }
+                    )
                 }
             }
         }
     }
 }
-
-// Basic Theme definition (You might have this in Theme.kt)
-@Composable
-fun WeeklySchedulerTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = lightColorScheme( // or darkColorScheme()
-            primary = Color(0xFF6200EE),
-            primaryContainer = Color(0xFFBB86FC),
-            secondary = Color(0xFF03DAC6),
-            secondaryContainer = Color(0xFF018786),
-            // Add other colors as needed
-        ),
-        typography = Typography(), // Default typography
-        content = content
-    )
-}
-
-@Preview(showBackground = true, widthDp = 380, heightDp = 600)
-@Composable
-fun ScheduleScreenPreview() {
-    WeeklySchedulerTheme {
-        ScheduleScreen(scheduleData = sampleScheduleData)
-    }
-}
-*/
