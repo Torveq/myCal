@@ -166,7 +166,7 @@ class ScheduleViewModel : ViewModel() {
     val eventsByDay: Map<DayOfWeek, List<ScheduleEvent>>
         get() = events.groupBy { it.day }.mapValues { (_, dayEvents) ->
             // Events within each day are now sorted by their start time.
-            dayEvents.sortedBy { parseTime(it.startTime) }
+            dayEvents.sortedBy { parseTime(it.startTime) }   //TODO: use smth similar to comparator in java for other sort order if start time is the same(end time comparison)
         }
 
     fun addEvent(event: ScheduleEvent) {
@@ -204,9 +204,7 @@ class ScheduleViewModel : ViewModel() {
         events = (otherEvents + targetDayEvents).sortedBy { it.day.ordinal }
     }
 
-
-    /* for testing purposes
-    init {populateSampleData()}
+    //init {populateSampleData()}
     // Function to add some sample data for preview
     private fun populateSampleData() {
         if (events.isEmpty()) { // Only add if empty to avoid duplication on recomposition
@@ -217,7 +215,7 @@ class ScheduleViewModel : ViewModel() {
             addEvent(ScheduleEvent(title = "Weekend Prep", startTime = "4:00 PM", endTime = "5:00 PM", location = "Home", day = DayOfWeek.FRIDAY))
             addEvent(ScheduleEvent(title = "Grocery Shopping", startTime = "11:00 AM", endTime = "12:00 PM", location = "Supermarket", day = DayOfWeek.SATURDAY))
         }
-    } */
+    }
 }
 
 
@@ -286,7 +284,7 @@ fun DayColumn(
     day: DayOfWeek,
     events: List<ScheduleEvent>,
     viewModel: ScheduleViewModel,
-    // CHANGE: Accept the state and callbacks from the parent.
+    // Accept the state and callbacks from the parent.
     draggedEventId: String?,
     onDragStart: (String) -> Unit,
     onDragEnd: () -> Unit,
@@ -299,9 +297,7 @@ fun DayColumn(
         modifier = Modifier
             .fillMaxHeight()
             // EMPTY COLUMN FIX: The .defaultMinSize modifier ensures that the Column has a
-            // minimum height even when it contains no events. This guarantees that there is
-            // always a physical area on the screen to act as a drop target, fixing the bug
-            // where items could not be dropped into empty columns.
+            // minimum height even when it contains no events
             .defaultMinSize(minHeight = 150.dp)
             .padding(4.dp)
             .border(2.dp, if (isDropTarget) MaterialTheme.colorScheme.primary else Color.LightGray)

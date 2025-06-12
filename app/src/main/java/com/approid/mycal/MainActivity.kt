@@ -13,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -35,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
@@ -54,10 +56,20 @@ import java.io.FileOutputStream
 import com.approid.mycal.WeeklyScheduleScreen
 
 
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // 1. Get the ScheduleViewModel instance first.
+        val scheduleViewModel: ScheduleViewModel by viewModels()
+
+        // 2. Create the factory for ScannerViewModel, giving it the scheduleViewModel it needs.
+        val scannerViewModelFactory = ScannerViewModelFactory(scheduleViewModel)
+
+        // 3. Get the ScannerViewModel using the factory.
+        val scannerViewModel: ScannerViewModel by viewModels { scannerViewModelFactory }
 
         setContent {
             MyCalTheme {
@@ -67,10 +79,14 @@ class MainActivity : ComponentActivity() {
                 ) {
                     // implement navigation library here sometime in the future(screens and that)
 
-                    val scheduleViewModel: ScheduleViewModel = viewModel()
+                    //val scheduleViewModel: ScheduleViewModel = viewModel()
                     //WeeklyScheduleScreen(scheduleViewModel = scheduleViewModel)
 
-                    DocScannerScreen()
+                    //DocScannerScreen()
+
+                    // 4. Pass the already-created ViewModel to your screen.
+                    DocScannerScreen(scannerViewModel = scannerViewModel, scheduleViewModel = scheduleViewModel)
+
 
                 }
             }

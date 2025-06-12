@@ -3,6 +3,7 @@ package com.approid.mycal
 //package com.approid.mycal.ui.scanner
 
 import android.app.Activity
+import android.content.Context
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -49,6 +50,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
@@ -58,18 +62,93 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
 
+// holds the state and logic.
+class ScannerViewModel(private val scheduleViewModel: ScheduleViewModel) : ViewModel() {
+
+    // --- State Variables ---
+    var isLoading by mutableStateOf(false)
+        private set
+
+    var generatedText by mutableStateOf<String?>(null)
+        private set
+
+    var showInfoPopup by mutableStateOf(false)
+        private set
+
+    var scanSuccess by mutableStateOf(false)
+        private set
+
+    /**
+     * The main function to process the scanned image.
+     */
+    fun processScannedImage(context: Context) {
+        viewModelScope.launch {
+            isLoading = true
+            resetState() // Clear previous results before starting
+
+            try {
+                val apiCallResponse = GeminiAPI.getScheduleFromImage(context)
+
+                if (apiCallResponse.contains("<JSON>")) {
+                    showInfoPopup = false
+                    val json = apiCallResponse.substringAfter("<JSON>").substringBefore("</JSON>")
+                    generatedText = json
+
+                    val events = parseScheduleEvents(json)
+                    events.forEach { scheduleViewModel.addEvent(it) }
+                    scanSuccess = true
+
+                } else if (apiCallResponse.contains("<NA>")) {
+                    showInfoPopup = true
+                    generatedText = apiCallResponse.substringAfter("<NA>").substringBefore("</NA>").trim()
+                } else {
+                    showInfoPopup = true
+                    generatedText = "An unexpected error occurred. Please try again."
+                }
+            } catch (e: Exception) {
+                generatedText = "Failed to scan: ${e.message}"
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    /**
+     * Resets the state for a new scan or a retry.
+     */
+    fun resetState() {
+        generatedText = null
+    }
+}
+
+// This is the FACTORY. Its only job is to create the ScannerViewModel.
+class ScannerViewModelFactory(private val scheduleViewModel: ScheduleViewModel) : ViewModelProvider.Factory {
+
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        // This check ensures you are creating the correct ViewModel
+        if (modelClass.isAssignableFrom(ScannerViewModel::class.java)) {
+            @Suppress("UNCHECKED_CAST")
+            // It creates a new ScannerViewModel and passes the scheduleViewModel to it
+            return ScannerViewModel(scheduleViewModel) as T
+        }
+        // This will throw an error if you try to use this factory for a different ViewModel
+        throw IllegalArgumentException("Unknown ViewModel class")
+    }
+}
+
+
+
 @Composable
-fun DocScannerScreen() {
+fun DocScannerScreen(scannerViewModel: ScannerViewModel, scheduleViewModel: ScheduleViewModel) {  //now just accepts view model as a parameter cause factory responsible for creating it
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-
+    //val coroutineScope = rememberCoroutineScope()
     var imageUri by remember { mutableStateOf<Uri?>(null) }
-    var generatedText by remember { mutableStateOf<String?>(null) }
-    var isLoading by remember { mutableStateOf(false) }
 
-    // State to control the error/info pop-up
-    var showInfoPopup by remember { mutableStateOf(false) }
-    var popupMessage by remember { mutableStateOf("") }
+    // Observe state directly from the ViewModel passed into the function
+    val isLoading = scannerViewModel.isLoading
+    val generatedText = scannerViewModel.generatedText
+    var showInfoPopup = scannerViewModel.showInfoPopup
+    var scanSuccess = scannerViewModel.scanSuccess
 
 
     // --- Scanner Setup ---
@@ -96,7 +175,9 @@ fun DocScannerScreen() {
 
                 inputStream?.use { input -> outputStream.use { output -> input.copyTo(output) } }
 
-                isLoading = true
+                scannerViewModel.processScannedImage(context)
+
+                /*isLoading = true
                 generatedText = null
                 coroutineScope.launch {
                     val apiCallResponse = GeminiAPI.getScheduleFromImage(context)
@@ -118,7 +199,7 @@ fun DocScannerScreen() {
                         popupMessage = "An unexpected error occurred. Please try again."
                         showInfoPopup = true
                     }
-                }
+                }*/
             }
         }
     )
@@ -150,8 +231,7 @@ fun DocScannerScreen() {
         } else {
             // Display the extracted JSON or a prompt to scan
             Text(
-                text = "Hello, welcome to my app, myCal.\n         I hope you find purpose.",
-                style = MaterialTheme.typography.bodyMedium
+                text = ""  //TODO: Figure out why i get infopopup with unexpectederror catch string if i dont have this eles clause in place
             )
         }
 
@@ -160,6 +240,10 @@ fun DocScannerScreen() {
         // The "Scan Schedule" button is now only shown in the initial state,
         // before any scan has been processed. It disappears once pressed.
         if (generatedText == null && !isLoading) {
+            Text(
+                text = "Hello, welcome to my app, myCal.\n         I hope you find purpose.",
+                style = MaterialTheme.typography.bodyMedium
+            )
             Spacer(modifier = Modifier.height(24.dp))
             Button(onClick = { startScan() }) {
                 Text(text = "Scan Schedule")
@@ -168,13 +252,18 @@ fun DocScannerScreen() {
     }
 
     if (showInfoPopup) {
-        InfoPopup(
-            onRetry = {
-                showInfoPopup = false
-                startScan()
-            },
-            message = popupMessage
-        )
+        if (generatedText != null) {
+            InfoPopup(
+                onRetry = {
+                    showInfoPopup = false
+                    startScan()
+                },
+                message = generatedText
+            )
+        }
+    }
+    else if (scanSuccess){
+        WeeklyScheduleScreen(scheduleViewModel)
     }
 }
 
