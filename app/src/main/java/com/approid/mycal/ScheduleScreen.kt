@@ -70,28 +70,91 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.launch
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.Json
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
 import kotlin.math.abs
 
-// wanted to add a drag and drop kanban style schedule with intra column drag and drop but some logistic issues and cba to reinvent the wheel(how to adjust time
+// wanted to add a drag and drop kanban style schedule with intra column drag and drop but some logistic issues and cba to reinvent the wheel(how to adjust time when reordered intra column)
 
 // Data class to represent a single schedule event
+@Serializable
 data class ScheduleEvent(
-    val id: String = UUID.randomUUID().toString(), // Unique ID for each event
+    val id: String = UUID.randomUUID().toString(), // Unique ID for each event(created by default)
     var title: String,
+
+    @SerialName("start_time")
     var startTime: String,
+    @SerialName("end_time")
     var endTime: String,
+
+    @Serializable(with = DayOfWeekSerializer::class) // custom serializer for this specific property(casting to enum safety with default MONDAY value)
     var day: DayOfWeek,
+
     var location: String? = null, // Optional location
     var notes: String? = null // Optional notes
 )
 
+fun parseScheduleEvents(jsonString: String): List<ScheduleEvent> {
+    val json = Json { ignoreUnknownKeys = true }
+    return try {
+        json.decodeFromString<List<ScheduleEvent>>(jsonString)
+    } catch (e: Exception) {
+        println("Error parsing JSON: ${e.message}")
+        emptyList()
+    }
+}
+
 enum class DayOfWeek {
     MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY
 }
+
+/**
+ * A custom serializer for the DayOfWeek enum.
+ * This object provides custom logic for converting a string to a DayOfWeek enum,
+ * including a fallback mechanism for invalid values.
+ */
+object DayOfWeekSerializer : KSerializer<DayOfWeek> {
+    // Describes the type being serialized (a String in this case) to the library.
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("DayOfWeek", PrimitiveKind.STRING)
+
+    /**
+     * This function is called when converting an enum object TO a JSON string.
+     * It simply takes the enum's name and encodes it as a string.
+     */
+    override fun serialize(encoder: Encoder, value: DayOfWeek) {
+        encoder.encodeString(value.name)
+    }
+
+    /**
+     * This function is called when converting a JSON string TO an enum object.
+     * This is where we implement the custom fallback logic.
+     */
+    override fun deserialize(decoder: Decoder): DayOfWeek {
+        val dayString = decoder.decodeString()
+        return try {
+            // We try to convert the string to an enum, converting it to uppercase
+            // to be more flexible (e.g., "tuesday" will work).
+            DayOfWeek.valueOf(dayString.uppercase())
+        } catch (e: IllegalArgumentException) {
+            // If valueOf() fails because the string is not a valid enum name,
+            // we catch the exception and return our desired default value.
+            println("Warning: Invalid day '$dayString' found in JSON. Defaulting to MONDAY.")
+            DayOfWeek.MONDAY
+        }
+    }
+}
+
 
 // ViewModel to hold and manage the schedule state
 class ScheduleViewModel : ViewModel() {
@@ -118,8 +181,7 @@ class ScheduleViewModel : ViewModel() {
         events = events.map { if (it.id == updatedEvent.id) updatedEvent else it }
     }
 
-    // REORDERING CHANGE: This function now handles moving an event to a specific day
-    // AND a specific index within that day's list, enabling reordering.
+    // This function now handles moving an event to a specific day
     fun moveEvent(draggedId: String, targetDay: DayOfWeek, targetIndex: Int) {
         val currentList = events.toMutableList()
 
@@ -143,22 +205,22 @@ class ScheduleViewModel : ViewModel() {
     }
 
 
+    /* for testing purposes
     init {populateSampleData()}
     // Function to add some sample data for preview
     private fun populateSampleData() {
         if (events.isEmpty()) { // Only add if empty to avoid duplication on recomposition
-            addEvent(ScheduleEvent(title = "Team Meeting", startTime = "10:00 AM", endTime = "11:00AM", location = "Room A", day = DayOfWeek.MONDAY))
-            addEvent(ScheduleEvent(title = "Lunch with Client", startTime = "1:00 PM", endTime = "2:00PM", location = "Cafe Central", day = DayOfWeek.MONDAY))
-            addEvent(ScheduleEvent(title = "Project Sync", startTime = "3:00 PM", endTime = "4:00PM", location = "Online", day = DayOfWeek.WEDNESDAY))
-            addEvent(ScheduleEvent(title = "Gym Session", startTime = "6:00 PM", endTime = "7:00PM", location = "City Fitness", day = DayOfWeek.THURSDAY))
-            addEvent(ScheduleEvent(title = "Weekend Prep", startTime = "4:00 PM", endTime = "5:00PM", location = "Home", day = DayOfWeek.FRIDAY))
-            addEvent(ScheduleEvent(title = "Grocery Shopping", startTime = "11:00 AM", endTime = "12:00PM", location = "Supermarket", day = DayOfWeek.SATURDAY))
+            addEvent(ScheduleEvent(title = "Team Meeting", startTime = "10:00 AM", endTime = "11:00 AM", location = "Room A", day = DayOfWeek.MONDAY))
+            addEvent(ScheduleEvent(title = "Lunch with Client", startTime = "1:00 PM", endTime = "2:00 PM", location = "Cafe Central", day = DayOfWeek.MONDAY))
+            addEvent(ScheduleEvent(title = "Project Sync", startTime = "3:00 PM", endTime = "4:00 PM", location = "Online", day = DayOfWeek.WEDNESDAY))
+            addEvent(ScheduleEvent(title = "Gym Session", startTime = "6:00 PM", endTime = "7:00 PM", location = "City Fitness", day = DayOfWeek.THURSDAY))
+            addEvent(ScheduleEvent(title = "Weekend Prep", startTime = "4:00 PM", endTime = "5:00 PM", location = "Home", day = DayOfWeek.FRIDAY))
+            addEvent(ScheduleEvent(title = "Grocery Shopping", startTime = "11:00 AM", endTime = "12:00 PM", location = "Supermarket", day = DayOfWeek.SATURDAY))
         }
-    }
+    } */
 }
 
-// CHANGE: Create a parent composable to own and manage the drag-and-drop state.
-// This is crucial for coordinating the drag source and drop targets.
+
 @Composable
 fun WeeklyScheduleScreen(scheduleViewModel: ScheduleViewModel = viewModel()) {
     // CHANGE: State to track the ID of the event currently being dragged.

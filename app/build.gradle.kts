@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    id("org.jetbrains.kotlin.plugin.serialization") version "1.9.23" // Use the same version as your Kotlin plugin
 }
 
 android {
@@ -72,6 +73,9 @@ dependencies {
 
     // And for observing LiveData or StateFlow as Composable state
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.0")
+
+    // for serialization of generated schedule json into ScheduleEvent objects
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

@@ -1,5 +1,6 @@
 package com.approid.mycal
 
+import android.util.Log
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -60,6 +61,7 @@ private val timeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("h:mm
 // Helper to parse a time string like "1:30 PM" into LocalTime
 fun parseTime(timeString: String): LocalTime {
     return try {
+        android.util.Log.d("TIME", "Long Press DETECTED on item: ${timeString}")
         LocalTime.parse(timeString, timeFormatter)
     } catch (e: Exception) {
         LocalTime.now() // Fallback
@@ -87,6 +89,7 @@ fun EditEventDialog(
 
     fun adjustTime(timeString: String, amount: Long): String {
         val time = parseTime(timeString)
+        android.util.Log.d("TIME", " ${time}")
         return time.plusMinutes(amount).format(timeFormatter)
     }
 

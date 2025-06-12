@@ -1,8 +1,5 @@
 package com.approid.mycal
 
-//import androidx.datastore.core.use
-// for doc scanner
-//import kotlin.coroutines.jvm.internal.CompletedContinuation.context
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
@@ -68,11 +65,13 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    // implement navigation library here
+                    // implement navigation library here sometime in the future(screens and that)
+
                     val scheduleViewModel: ScheduleViewModel = viewModel()
                     //WeeklyScheduleScreen(scheduleViewModel = scheduleViewModel)
 
                     DocScannerScreen()
+
                 }
             }
         }
