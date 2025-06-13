@@ -59,7 +59,7 @@ object GeminiAPI {
                     "\n" +
                     "\n" +
                     "\n" +
-                    "Enclose the JSON objects within the <JSON> </JSON> tags and if you cannot see or discern a form of schedule or timetable then add <NA> </NA> tags and within them include what you can see and if you can tell its something similar to a schedule provide instructions for taking a better image next time - the text in between the <NA> </NA> tags shall not exceed more than 40 words."
+                    "Enclose the JSON objects within the <JSON> </JSON> tags and if you cannot see or discern a form of schedule or timetable then add <NA> </NA> tags and within them include what you can see and if you can tell its something similar to a schedule provide instructions for taking a better image next time - the text in between the <NA> </NA> tags shall not exceed more than 40 words. Be sure to enclose the extraction of events(if any) within <JSON> and </JSON> tags."
             )
 
         }

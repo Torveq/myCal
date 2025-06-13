@@ -13,6 +13,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -218,8 +219,9 @@ class ScheduleViewModel : ViewModel() {
     }
 }
 
+// The following WeeklyScheduleScreen  and DayHeaderRow would replace the uncommented WeeklyScheduleScreen, ScheduleList, ScheduleGrid, DayHeader, and DayHeaderRow to implement original only landscape optimised schedule screen
 
-@Composable
+/*@Composable
 fun WeeklyScheduleScreen(scheduleViewModel: ScheduleViewModel = viewModel()) {
     // CHANGE: State to track the ID of the event currently being dragged.
     // When an event is dragged, its ID is stored here. When the drag ends, it's set back to null.
@@ -229,40 +231,52 @@ fun WeeklyScheduleScreen(scheduleViewModel: ScheduleViewModel = viewModel()) {
     var eventToEdit by remember { mutableStateOf<ScheduleEvent?>(null) }
     val days = DayOfWeek.values()
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column {
-            DayHeaderRow(days)
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(days.size),
-            ) {
-                days.forEach { day ->
-                    item(span = { GridItemSpan(1) }) {
-                        DayColumn(
-                            day = day,
-                            events = scheduleViewModel.eventsByDay[day] ?: emptyList(),
-                            viewModel = scheduleViewModel,
-                            // CHANGE: Pass the dragged item ID and the callbacks down to the children.
-                            draggedEventId = draggedEventId,
-                            onDragStart = { eventId -> draggedEventId = eventId },
-                            onDragEnd = { draggedEventId = null },
-                            onEventEdit = { event -> eventToEdit = event }
-                        )
+    Box(modifier = Modifier
+        .fillMaxSize()
+        .padding(16.dp), // Padding around the entire schedule
+        contentAlignment = Alignment.Center) {
+        Surface(
+            modifier = Modifier
+                .fillMaxSize(),
+            shape = RoundedCornerShape(16.dp),
+            tonalElevation = 4.dp, // Adds a subtle shadow
+            shadowElevation = 4.dp,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        ) {
+            Column {
+                DayHeaderRow(days)
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(days.size),
+                ) {
+                    days.forEach { day ->
+                        item(span = { GridItemSpan(1) }) {
+                            DayColumn(
+                                day = day,
+                                events = scheduleViewModel.eventsByDay[day] ?: emptyList(),
+                                viewModel = scheduleViewModel,
+                                // CHANGE: Pass the dragged item ID and the callbacks down to the children.
+                                draggedEventId = draggedEventId,
+                                onDragStart = { eventId -> draggedEventId = eventId },
+                                onDragEnd = { draggedEventId = null },
+                                onEventEdit = { event -> eventToEdit = event }
+                            )
+                        }
                     }
                 }
             }
-        }
-        // The `let` scope ensures the dialog is only composed when there's an event to edit.
-        eventToEdit?.let { event ->
-            EditEventDialog(
-                eventToEdit = event,
-                viewModel = scheduleViewModel,
-                onDismiss = { eventToEdit = null } // Set back to null to hide the dialog
-            )
+            // The `let` scope ensures the dialog is only composed when there's an event to edit.
+            eventToEdit?.let { event ->
+                EditEventDialog(
+                    eventToEdit = event,
+                    viewModel = scheduleViewModel,
+                    onDismiss = { eventToEdit = null } // Set back to null to hide the dialog
+                )
+            }
         }
     }
-}
+}*/
 
-@Composable
+/*@Composable
 fun DayHeaderRow(days: Array<DayOfWeek>) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -274,6 +288,185 @@ fun DayHeaderRow(days: Array<DayOfWeek>) {
                 modifier = Modifier.padding(8.dp).weight(1f),
                 textAlign = TextAlign.Center,
                 fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}*/
+
+@Composable
+fun WeeklyScheduleScreen(scheduleViewModel: ScheduleViewModel = viewModel()) {
+    var draggedEventId by remember { mutableStateOf<String?>(null) }
+    var eventToEdit by remember { mutableStateOf<ScheduleEvent?>(null) }
+
+    // --- NEW: BoxWithConstraints detects available space ---
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        val isPortrait = maxWidth < 600.dp // A common breakpoint for phones
+
+        // Conditionally display List or Grid based on orientation ---
+        if (isPortrait) {
+            ScheduleList(
+                scheduleViewModel = scheduleViewModel,
+                draggedEventId = draggedEventId,
+                onDragStart = { draggedEventId = it },
+                onDragEnd = { draggedEventId = null },
+                onEventEdit = { eventToEdit = it }
+            )
+        } else {
+            ScheduleGrid(
+                scheduleViewModel = scheduleViewModel,
+                draggedEventId = draggedEventId,
+                onDragStart = { draggedEventId = it },
+                onDragEnd = { draggedEventId = null },
+                onEventEdit = { eventToEdit = it }
+            )
+        }
+
+        eventToEdit?.let { event ->
+            EditEventDialog(
+                eventToEdit = event,
+                viewModel = scheduleViewModel,
+                onDismiss = { eventToEdit = null },
+                isPortrait = isPortrait
+            )
+        }
+    }
+}
+
+// A Composable for the Portrait (List) layout ---
+@Composable
+fun ScheduleList(
+    scheduleViewModel: ScheduleViewModel,
+    draggedEventId: String?,
+    onDragStart: (String) -> Unit,
+    onDragEnd: () -> Unit,
+    onEventEdit: (ScheduleEvent) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        val eventsByDay = scheduleViewModel.eventsByDay
+        DayOfWeek.values().forEach { day ->
+            val eventsForDay = eventsByDay[day]
+            if (!eventsForDay.isNullOrEmpty()) {
+                // Sticky header for the day
+                stickyHeader {
+                    DayHeader(day = day)
+                }
+                // Items for that day
+                items(eventsForDay, key = { it.id }) { event ->
+                    AnimatedVisibility(
+                        visible = draggedEventId != event.id,
+                        enter = fadeIn(),
+                        exit = fadeOut()
+                    ) {
+                        EventItem(
+                            event = event,
+                            viewModel = scheduleViewModel,
+                            onDragStart = onDragStart,
+                            onDragEnd = onDragEnd,
+                            onEdit = onEventEdit,
+                            index = -1, // Placeholder
+                            isPortrait = true
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// A Composable for the Landscape (Grid) layout ---
+@Composable
+fun ScheduleGrid(
+    scheduleViewModel: ScheduleViewModel,
+    draggedEventId: String?,
+    onDragStart: (String) -> Unit,
+    onDragEnd: () -> Unit,
+    onEventEdit: (ScheduleEvent) -> Unit
+) {
+    val days = DayOfWeek.values()
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            shape = RoundedCornerShape(16.dp),
+            tonalElevation = 4.dp,
+            shadowElevation = 4.dp,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        ) {
+            Column(modifier = Modifier.padding(8.dp)) {
+                DayHeaderRow(days)
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(days.size),
+                ) {
+                    days.forEach { day ->
+                        item(span = { GridItemSpan(1) }) {
+                            DayColumn(
+                                day = day,
+                                events = scheduleViewModel.eventsByDay[day] ?: emptyList(),
+                                viewModel = scheduleViewModel,
+                                draggedEventId = draggedEventId,
+                                onDragStart = onDragStart,
+                                onDragEnd = onDragEnd,
+                                onEventEdit = onEventEdit
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// A specific header for the List view with a background
+@Composable
+fun DayHeader(day: DayOfWeek) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 16.dp, bottom = 8.dp),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        shape = RoundedCornerShape(8.dp),
+        tonalElevation = 2.dp // Adds a subtle lift
+    ) {
+        Text(
+            text = day.name,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            color = MaterialTheme.colorScheme.onPrimaryContainer
+        )
+    }
+}
+
+
+@Composable
+fun DayHeaderRow(days: Array<DayOfWeek>) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 8.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly
+    ) {
+        days.forEach { day ->
+            Text(
+                text = day.name.take(3),
+                modifier = Modifier
+                    .padding(vertical = 8.dp)
+                    .weight(1f),
+                textAlign = TextAlign.Center,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.titleSmall
             )
         }
     }
@@ -367,7 +560,8 @@ fun DayColumn(
                         // CHANGE: Pass the callbacks down to the EventItem.
                         onDragStart = onDragStart,
                         onDragEnd = onDragEnd,
-                        onEdit = onEventEdit
+                        onEdit = onEventEdit,
+                        isPortrait = false
                     )
                 }
             }
@@ -395,7 +589,8 @@ fun EventItem(
     // CHANGE: Accept callbacks to notify the parent about drag state changes.
     onDragStart: (String) -> Unit,
     onDragEnd: () -> Unit,
-    onEdit: (ScheduleEvent) -> Unit
+    onEdit: (ScheduleEvent) -> Unit,
+    isPortrait: Boolean
 ) {
     var showOptionsMenu by remember { mutableStateOf(false) }
     // RIPPLE EFFECT: 1. Create a MutableInteractionSource.
@@ -417,64 +612,78 @@ fun EventItem(
             .indication(interactionSource = interactionSource, indication = rememberRipple())
             .dragAndDropSource {
                 // We use a pointerInput scope implicitly(we are in dndsource scope which is in pointerInput scope) to detect the long press gesture that will start the drag.
-                detectTapGestures(
-                    // RIPPLE EFFECT: 3. Implement the onPress block.
-                    onPress = { offset ->
-                        // As soon as a finger touches down, create a 'Press' interaction.
-                        val press = PressInteraction.Press(offset)
-                        // Emit the press to our interactionSource, which tells the .indication modifier to draw the ripple.
-                        interactionSource.emit(press)
+                if (!isPortrait) {
+                    detectTapGestures(
+                        // RIPPLE EFFECT: 3. Implement the onPress block.
+                        onPress = { offset ->
+                            // As soon as a finger touches down, create a 'Press' interaction.
+                            val press = PressInteraction.Press(offset)
+                            // Emit the press to our interactionSource, which tells the .indication modifier to draw the ripple.
+                            interactionSource.emit(press)
 
-                        try {
-                            // This waits for the user to lift their finger or for the gesture to be cancelled.
-                            awaitRelease()
-                        } finally {
-                            // Once the press is over, emit a 'Release' event to remove the ripple.
-                            interactionSource.emit(PressInteraction.Release(press))
-                        }
-                    },
-                    // A simple, single tap will now trigger the options menu.
-                    onTap = {
-                        showOptionsMenu = true
-                    },
-                    onLongPress = {
-                        android.util.Log.d("DragDropDebug", "Long Press DETECTED on item: ${event.title}")
-                        // CHANGE: When a long press is detected, we build and start the data transfer.
-                        // The try/finally block is crucial. The 'finally' block ensures that
-                        // onDragEnd() is always called, even if the drag is cancelled,
-                        // making sure the original item reappears correctly.
-                        try {
-                            // First, we notify the parent that a drag has started.
-                            // This sets the 'draggedEventId' and hides this original item via AnimatedVisibility.
-                            onDragStart(event.id)
-
-                            android.util.Log.d("DragDropDebug", "onDragStart CALLED for item: ${event.title}")
-
-                            // Then, we start the actual system-level drag operation.
-                            startTransfer(
-                                DragAndDropTransferData(
-                                    // We send the event's ID as plain text.
-                                    // We also give it a custom MIME type so our drop target can identify it.
-                                    clipData = ClipData(
-                                        ClipDescription("Schedule Event", arrayOf("application/vnd.mycal.event")),
-                                        ClipData.Item(event.id)
-                                    ),
-                                    // The system automatically creates a "drag shadow" (a semi-transparent
-                                    // image of the composable being dragged), so we don't need to draw it manually.
-                                )
+                            try {
+                                // This waits for the user to lift their finger or for the gesture to be cancelled.
+                                awaitRelease()
+                            } finally {
+                                // Once the press is over, emit a 'Release' event to remove the ripple.
+                                interactionSource.emit(PressInteraction.Release(press))
+                            }
+                        },
+                        // A simple, single tap will now trigger the options menu.
+                        onTap = {
+                            showOptionsMenu = true
+                        },
+                        onLongPress = {
+                            android.util.Log.d(
+                                "DragDropDebug",
+                                "Long Press DETECTED on item: ${event.title}"
                             )
-                        } finally {
-                            // This block executes when the drag is over (dropped or cancelled).
-                            // We notify the parent to reset the state, making the original item visible again.
-                            onDragEnd()
+                            // CHANGE: When a long press is detected, we build and start the data transfer.
+                            // The try/finally block is crucial. The 'finally' block ensures that
+                            // onDragEnd() is always called, even if the drag is cancelled,
+                            // making sure the original item reappears correctly.
+                            try {
+                                // First, we notify the parent that a drag has started.
+                                // This sets the 'draggedEventId' and hides this original item via AnimatedVisibility.
+                                onDragStart(event.id)
+
+                                android.util.Log.d(
+                                    "DragDropDebug",
+                                    "onDragStart CALLED for item: ${event.title}"
+                                )
+
+                                // Then, we start the actual system-level drag operation.
+                                startTransfer(
+                                    DragAndDropTransferData(
+                                        // We send the event's ID as plain text.
+                                        // We also give it a custom MIME type so our drop target can identify it.
+                                        clipData = ClipData(
+                                            ClipDescription(
+                                                "Schedule Event",
+                                                arrayOf("application/vnd.mycal.event")
+                                            ),
+                                            ClipData.Item(event.id)
+                                        ),
+                                        // The system automatically creates a "drag shadow" (a semi-transparent
+                                        // image of the composable being dragged), so we don't need to draw it manually.
+                                    )
+                                )
+                            } finally {
+                                // This block executes when the drag is over (dropped or cancelled).
+                                // We notify the parent to reset the state, making the original item visible again.
+                                onDragEnd()
+                            }
                         }
-                    }
-                )
+                    )
+                }
             },
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         shape = RoundedCornerShape(12.dp) // Modern, roundy corners for the event item.
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier
+            .padding(12.dp)
+            .defaultMinSize(minHeight = 130.dp),
+            verticalArrangement = Arrangement.SpaceBetween) {
             Text(text = event.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
             Spacer(modifier = Modifier.height(4.dp))
             Text(text = "${event.startTime} - ${event.endTime}", style = MaterialTheme.typography.bodyLarge)

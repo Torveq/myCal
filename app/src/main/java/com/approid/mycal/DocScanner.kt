@@ -88,22 +88,25 @@ class ScannerViewModel(private val scheduleViewModel: ScheduleViewModel) : ViewM
 
             try {
                 val apiCallResponse = GeminiAPI.getScheduleFromImage(context)
+                if (apiCallResponse != null) {
+                    if (apiCallResponse.contains("<JSON>")) {
+                        showInfoPopup = false
+                        val json =
+                            apiCallResponse.substringAfter("<JSON>").substringBefore("</JSON>")
+                        generatedText = json
 
-                if (apiCallResponse.contains("<JSON>")) {
-                    showInfoPopup = false
-                    val json = apiCallResponse.substringAfter("<JSON>").substringBefore("</JSON>")
-                    generatedText = json
+                        val events = parseScheduleEvents(json)
+                        events.forEach { scheduleViewModel.addEvent(it) }
+                        scanSuccess = true
 
-                    val events = parseScheduleEvents(json)
-                    events.forEach { scheduleViewModel.addEvent(it) }
-                    scanSuccess = true
-
-                } else if (apiCallResponse.contains("<NA>")) {
-                    showInfoPopup = true
-                    generatedText = apiCallResponse.substringAfter("<NA>").substringBefore("</NA>").trim()
-                } else {
-                    showInfoPopup = true
-                    generatedText = "An unexpected error occurred. Please try again."
+                    } else if (apiCallResponse.contains("<NA>")) {
+                        showInfoPopup = true
+                        generatedText =
+                            apiCallResponse.substringAfter("<NA>").substringBefore("</NA>").trim()
+                    } else {
+                        showInfoPopup = true
+                        generatedText = "An unexpected error occurred. Please try again. ${apiCallResponse}"
+                    }
                 }
             } catch (e: Exception) {
                 generatedText = "Failed to scan: ${e.message}"

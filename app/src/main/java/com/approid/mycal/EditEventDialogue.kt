@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,6 +25,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -54,6 +57,7 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
+import androidx.compose.foundation.lazy.items //for the items function in DaySelector function
 
 // Helper to format LocalTime into a string like "1:30 PM"
 private val timeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
@@ -75,14 +79,15 @@ fun parseTime(timeString: String): LocalTime {
 fun EditEventDialog(
     eventToEdit: ScheduleEvent,
     viewModel: ScheduleViewModel,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    isPortrait: Boolean
 ) {
     var title by remember { mutableStateOf(eventToEdit.title) }
     var location by remember { mutableStateOf(eventToEdit.location ?: "") }
-    // NOTES CHANGE: Add state for the notes field.
     var notes by remember { mutableStateOf(eventToEdit.notes ?: "") }
     var startTime by remember { mutableStateOf(eventToEdit.startTime) }
     var endTime by remember { mutableStateOf(eventToEdit.endTime) }
+    var day by remember { mutableStateOf(eventToEdit.day) }
 
     var showTimePickerFor by remember { mutableStateOf<String?>(null) }
 
@@ -109,7 +114,13 @@ fun EditEventDialog(
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold
                 )
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                if (isPortrait) {
+                    DaySelector(selectedDay = day, onDaySelected = { day = it })
+                    Spacer(Modifier.height(16.dp))
+                }
+
                 Column(modifier = Modifier
                     .weight(1f)
                     .verticalScroll(rememberScrollState())) {
@@ -131,7 +142,7 @@ fun EditEventDialog(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    // NOTES CHANGE: Add a text field for notes.
+                    // Add a text field for notes.
                     OutlinedTextField(
                         value = notes,
                         onValueChange = { notes = it },
@@ -184,7 +195,8 @@ fun EditEventDialog(
                                 // NOTES CHANGE: Include notes when updating the event.
                                 notes = notes,
                                 startTime = startTime,
-                                endTime = endTime
+                                endTime = endTime,
+                                day = day
                             )
                             viewModel.updateEvent(updatedEvent)
                             onDismiss()
@@ -399,6 +411,24 @@ fun <T> ScrollablePicker(
                             }
                     )
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DaySelector(selectedDay: DayOfWeek, onDaySelected: (DayOfWeek) -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        //Text("Day", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(bottom = 8.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 4.dp)) {
+            items(DayOfWeek.values()) { day ->
+                FilterChip(
+                    selected = selectedDay == day,
+                    onClick = { onDaySelected(day) },
+                    label = { Text(day.name.take(3)) },
+                    shape = RoundedCornerShape(8.dp)
+                )
             }
         }
     }
