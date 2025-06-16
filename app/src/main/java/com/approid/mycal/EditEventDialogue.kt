@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -60,7 +61,7 @@ import kotlin.math.abs
 import androidx.compose.foundation.lazy.items //for the items function in DaySelector function
 
 // Helper to format LocalTime into a string like "1:30 PM"
-private val timeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
+val timeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
 
 // Helper to parse a time string like "1:30 PM" into LocalTime
 fun parseTime(timeString: String): LocalTime {
@@ -82,6 +83,9 @@ fun EditEventDialog(
     onDismiss: () -> Unit,
     isPortrait: Boolean
 ) {
+    val isNewEvent = remember { !viewModel.events.any { it.id == eventToEdit.id } }
+    val dialogTitle = if (isNewEvent) "Add Event" else "Edit Event"
+
     var title by remember { mutableStateOf(eventToEdit.title) }
     var location by remember { mutableStateOf(eventToEdit.location ?: "") }
     var notes by remember { mutableStateOf(eventToEdit.notes ?: "") }
@@ -105,18 +109,24 @@ fun EditEventDialog(
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 8.dp
         ) {
+            val dialogModifier = if (isPortrait) {
+                Modifier.fillMaxHeight(0.70f) // Use 85% of the screen height in portrait
+            } else {
+                Modifier // Use default height in landscape
+            }
+
             Column(
-                modifier = Modifier.padding(24.dp),
+                modifier = dialogModifier.padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "Edit Event",
+                    text = dialogTitle,
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(16.dp))
 
-                if (isPortrait) {
+                if (isPortrait || isNewEvent) {
                     DaySelector(selectedDay = day, onDaySelected = { day = it })
                     Spacer(Modifier.height(16.dp))
                 }
@@ -190,15 +200,18 @@ fun EditEventDialog(
                     Button(
                         onClick = {
                             val updatedEvent = eventToEdit.copy(
-                                title = title,
+                                title = title.ifBlank{ "Untitled Event"},
                                 location = location,
-                                // NOTES CHANGE: Include notes when updating the event.
                                 notes = notes,
                                 startTime = startTime,
                                 endTime = endTime,
                                 day = day
                             )
-                            viewModel.updateEvent(updatedEvent)
+                            if (isNewEvent) {
+                                viewModel.addEvent(updatedEvent)
+                            } else {
+                                viewModel.updateEvent(updatedEvent)
+                            }
                             onDismiss()
                         },
                         shape = RoundedCornerShape(8.dp)

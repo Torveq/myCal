@@ -345,7 +345,7 @@ fun InfoPopup(
 }
 
 @Composable
-private fun ClickableImageThumbnail(file: File, onClick: () -> Unit) {
+fun ClickableImageThumbnail(file: File, onClick: () -> Unit) {
     AsyncImage(
         model = file,
         contentDescription = "Scanned image thumbnail",
@@ -358,7 +358,7 @@ private fun ClickableImageThumbnail(file: File, onClick: () -> Unit) {
 }
 
 @Composable
-private fun FullScreenImageDialog(file: File?, onDismiss: () -> Unit) {
+fun FullScreenImageDialog(file: File?, onDismiss: () -> Unit) {
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)

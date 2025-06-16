@@ -34,6 +34,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.ripple.rememberRipple
@@ -67,9 +68,11 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.window.Dialog
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
@@ -80,6 +83,7 @@ import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
+import java.io.File
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -298,41 +302,94 @@ fun WeeklyScheduleScreen(scheduleViewModel: ScheduleViewModel = viewModel()) {
     var draggedEventId by remember { mutableStateOf<String?>(null) }
     var eventToEdit by remember { mutableStateOf<ScheduleEvent?>(null) }
 
-    // --- NEW: BoxWithConstraints detects available space ---
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
-        val isPortrait = maxWidth < 600.dp // A common breakpoint for phones
+    var showFullScreenImage by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val imgFile = remember { File(context.filesDir, "scan.jpeg") }
 
-        // Conditionally display List or Grid based on orientation ---
-        if (isPortrait) {
-            ScheduleList(
-                scheduleViewModel = scheduleViewModel,
-                draggedEventId = draggedEventId,
-                onDragStart = { draggedEventId = it },
-                onDragEnd = { draggedEventId = null },
-                onEventEdit = { eventToEdit = it }
-            )
-        } else {
-            ScheduleGrid(
-                scheduleViewModel = scheduleViewModel,
-                draggedEventId = draggedEventId,
-                onDragStart = { draggedEventId = it },
-                onDragEnd = { draggedEventId = null },
-                onEventEdit = { eventToEdit = it }
-            )
+    // This is the root Box
+    Box(modifier = Modifier.fillMaxSize()) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+        ) {
+            val isPortrait = maxWidth < 600.dp // A common breakpoint for phones
+
+            // Conditionally display List or Grid based on orientation ---
+            if (isPortrait) {
+                ScheduleList(
+                    scheduleViewModel = scheduleViewModel,
+                    draggedEventId = draggedEventId,
+                    onDragStart = { draggedEventId = it },
+                    onDragEnd = { draggedEventId = null },
+                    onEventEdit = { eventToEdit = it }
+                )
+            } else {
+                ScheduleGrid(
+                    scheduleViewModel = scheduleViewModel,
+                    draggedEventId = draggedEventId,
+                    onDragStart = { draggedEventId = it },
+                    onDragEnd = { draggedEventId = null },
+                    onEventEdit = { eventToEdit = it }
+                )
+            }
+
+            eventToEdit?.let { event ->
+                EditEventDialog(
+                    eventToEdit = event,
+                    viewModel = scheduleViewModel,
+                    onDismiss = { eventToEdit = null },
+                    isPortrait = isPortrait
+                )
+            }
         }
 
-        eventToEdit?.let { event ->
-            EditEventDialog(
-                eventToEdit = event,
-                viewModel = scheduleViewModel,
-                onDismiss = { eventToEdit = null },
-                isPortrait = isPortrait
-            )
+        // A Row to hold the thumbnail and FAB at the bottom
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomCenter) // Aligns the whole row to the bottom
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween, // Pushes children to the ends
+            verticalAlignment = Alignment.CenterVertically // Aligns items vertically in the middle
+        ) {
+            // 1. Thumbnail on the left
+            if (imgFile.exists()) {
+                ClickableImageThumbnail(
+                    file = imgFile,
+                    onClick = { showFullScreenImage = true }
+                )
+            } else {
+                // Spacer to hold the space if the image doesn't exist,
+                // keeping the FAB on the right.
+                Text(text = "File exists: ${imgFile.exists()}", color = Color.Red)
+                Spacer(modifier = Modifier.size(48.dp))
+            }
+
+            // 2. FAB on the right
+            FloatingActionButton(
+                onClick = {
+                    // Create a new blank event to signal "add mode"
+                    val now = LocalTime.now()
+                    eventToEdit = ScheduleEvent(
+                        title = "",
+                        startTime = now.format(timeFormatter),
+                        endTime = now.plusHours(1).format(timeFormatter),
+                        day = DayOfWeek.values()[java.time.LocalDate.now().dayOfWeek.value - 1] // Default to today
+                    )
+                },
+                shape = RoundedCornerShape(16.dp),
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = "Add Event")
+            }
         }
+    }
+    if (showFullScreenImage) {
+        FullScreenImageDialog(
+            file = imgFile,
+            onDismiss = { showFullScreenImage = false }
+        )
     }
 }
 
