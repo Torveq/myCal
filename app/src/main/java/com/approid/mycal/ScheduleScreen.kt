@@ -310,7 +310,9 @@ fun WeeklyScheduleScreen(scheduleViewModel: ScheduleViewModel = viewModel()) {
     Box(modifier = Modifier.fillMaxSize()) {
         BoxWithConstraints(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth(0.93f)
+                .fillMaxHeight(0.82f)
+                .align(Alignment.Center)
                 .background(MaterialTheme.colorScheme.background)
         ) {
             val isPortrait = maxWidth < 600.dp // A common breakpoint for phones
@@ -342,48 +344,56 @@ fun WeeklyScheduleScreen(scheduleViewModel: ScheduleViewModel = viewModel()) {
                     isPortrait = isPortrait
                 )
             }
-        }
 
-        // A Row to hold the thumbnail and FAB at the bottom
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.BottomCenter) // Aligns the whole row to the bottom
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween, // Pushes children to the ends
-            verticalAlignment = Alignment.CenterVertically // Aligns items vertically in the middle
-        ) {
-            // 1. Thumbnail on the left
-            if (imgFile.exists()) {
-                ClickableImageThumbnail(
-                    file = imgFile,
-                    onClick = { showFullScreenImage = true }
-                )
-            } else {
-                // Spacer to hold the space if the image doesn't exist,
-                // keeping the FAB on the right.
-                Text(text = "File exists: ${imgFile.exists()}", color = Color.Red)
-                Spacer(modifier = Modifier.size(48.dp))
-            }
 
-            // 2. FAB on the right
-            FloatingActionButton(
-                onClick = {
-                    // Create a new blank event to signal "add mode"
-                    val now = LocalTime.now()
-                    eventToEdit = ScheduleEvent(
-                        title = "",
-                        startTime = now.format(timeFormatter),
-                        endTime = now.plusHours(1).format(timeFormatter),
-                        day = DayOfWeek.values()[java.time.LocalDate.now().dayOfWeek.value - 1] // Default to today
-                    )
-                },
-                shape = RoundedCornerShape(16.dp),
-                containerColor = MaterialTheme.colorScheme.primaryContainer
+            // A Row to hold the thumbnail and FAB at the bottom
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter) // Aligns the whole row to the bottom
+                    .padding(horizontal = 10.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween, // Pushes children to the ends
+                verticalAlignment = Alignment.CenterVertically // Aligns items vertically in the middle
             ) {
-                Icon(Icons.Filled.Add, contentDescription = "Add Event")
+                // 1. Thumbnail on the left
+                if (imgFile.exists()) {
+                    ClickableImageThumbnail(
+                        file = imgFile,
+                        onClick = { showFullScreenImage = true }
+                    )
+                } else {
+                    // Spacer to hold the space if the image doesn't exist,
+                    // keeping the FAB on the right.
+                    Text(text = "File exists: ${imgFile.exists()}", color = Color.Red)
+                    Spacer(modifier = Modifier.size(48.dp))
+                }
+
+                // 2. FAB on the right
+                FloatingActionButton(
+                    onClick = {
+                        // Create a new blank event to signal "add mode"
+                        val now = LocalTime.now()
+                        eventToEdit = ScheduleEvent(
+                            title = "",
+                            startTime = now.format(timeFormatter),
+                            endTime = now.plusHours(1).format(timeFormatter),
+                            day = DayOfWeek.values()[java.time.LocalDate.now().dayOfWeek.value - 1] // Default to today
+                        )
+                    },
+                    shape = RoundedCornerShape(16.dp),
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = "Add Event")
+                }
             }
         }
+
+        Button(
+            onClick = {},
+            modifier = Modifier.align(Alignment.TopEnd)
+                .padding(horizontal = 15.dp, vertical = 15.dp),
+            content = { Text("Convert") }
+        )
     }
     if (showFullScreenImage) {
         FullScreenImageDialog(

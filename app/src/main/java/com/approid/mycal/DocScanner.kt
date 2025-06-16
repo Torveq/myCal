@@ -62,6 +62,8 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
 
+//TODO: fix GMSDocScanner when image imported imported twice sometimes and no events extracted if continued
+
 // holds the state and logic.
 class ScannerViewModel(private val scheduleViewModel: ScheduleViewModel) : ViewModel() {
 
