@@ -2,6 +2,8 @@
 
 package com.approid.mycal
 
+import java.time.DayOfWeek as JavaDayOfWeek
+
 import android.content.ClipData
 import android.content.ClipDescription
 import android.os.Bundle
@@ -121,7 +123,11 @@ fun parseScheduleEvents(jsonString: String): List<ScheduleEvent> {
 }
 
 enum class DayOfWeek {
-    MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY
+    MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY;
+    // Add this property to convert your enum to the standard Java one.
+    // It works by matching the names (e.g., "MONDAY" to "MONDAY").
+    val toJavaDayOfWeek: JavaDayOfWeek
+        get() = JavaDayOfWeek.valueOf(this.name)
 }
 
 /**
@@ -209,7 +215,7 @@ class ScheduleViewModel : ViewModel() {
         events = (otherEvents + targetDayEvents).sortedBy { it.day.ordinal }
     }
 
-    //init {populateSampleData()}
+    init {populateSampleData()} // W
     // Function to add some sample data for preview
     private fun populateSampleData() {
         if (events.isEmpty()) { // Only add if empty to avoid duplication on recomposition
@@ -389,10 +395,13 @@ fun WeeklyScheduleScreen(scheduleViewModel: ScheduleViewModel = viewModel()) {
         }
 
         Button(
-            onClick = {},
+            onClick = {
+                val icsString = createIcsFromSchedule(scheduleViewModel.events)
+                shareIcsFile(context, icsString)
+            },
             modifier = Modifier.align(Alignment.TopEnd)
                 .padding(horizontal = 15.dp, vertical = 15.dp),
-            content = { Text("Convert") }
+            content = { Text("Export") }
         )
     }
     if (showFullScreenImage) {
@@ -558,9 +567,9 @@ fun DayColumn(
             .fillMaxHeight()
             // EMPTY COLUMN FIX: The .defaultMinSize modifier ensures that the Column has a
             // minimum height even when it contains no events
-            .defaultMinSize(minHeight = 150.dp)
+            .defaultMinSize(minHeight = 1000.dp)
             .padding(4.dp)
-            .border(2.dp, if (isDropTarget) MaterialTheme.colorScheme.primary else Color.LightGray)
+            //.border(2.dp, if (isDropTarget) MaterialTheme.colorScheme.primary else Color.LightGray)
             .dragAndDropTarget(
                 shouldStartDragAndDrop = { event ->
                     event.toAndroidDragEvent().clipDescription?.hasMimeType("application/vnd.mycal.event") == true
