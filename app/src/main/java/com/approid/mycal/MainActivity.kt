@@ -85,10 +85,7 @@ class MainActivity : ComponentActivity() {
                     //DocScannerScreen()
 
                     // 4. Pass the already-created ViewModel to your screen.
-                    // W DocScannerScreen(scannerViewModel = scannerViewModel, scheduleViewModel = scheduleViewModel)
-
-                    WeeklyScheduleScreen(scheduleViewModel)
-
+                    DocScannerScreen(scannerViewModel = scannerViewModel, scheduleViewModel = scheduleViewModel)
 
                 }
             }

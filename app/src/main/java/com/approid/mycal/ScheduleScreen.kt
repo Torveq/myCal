@@ -215,7 +215,7 @@ class ScheduleViewModel : ViewModel() {
         events = (otherEvents + targetDayEvents).sortedBy { it.day.ordinal }
     }
 
-    init {populateSampleData()} // W
+    //init {populateSampleData()}
     // Function to add some sample data for preview
     private fun populateSampleData() {
         if (events.isEmpty()) { // Only add if empty to avoid duplication on recomposition
